@@ -1,8 +1,6 @@
 import sbt._
 import Keys._
 
-
-
 val sharedSettings = Seq(
   libraryDependencies ++= Seq(
     "com.typesafe.scala-logging" %% "scala-logging" % "3.5.0",
@@ -11,8 +9,7 @@ val sharedSettings = Seq(
     "org.scalactic" %% "scalactic" % "3.0.0",
     "org.scalatest" %% "scalatest" % "3.0.0" % "test"
   ),
-  resolvers += Resolver.typesafeRepo("releases"),
-  resolvers += "Artima Maven Repository" at "http://repo.artima.com/releases"
+  resolvers += Resolver.typesafeRepo("releases")
 )
 
 logBuffered in Test := false
@@ -24,31 +21,32 @@ scalaVersion in ThisBuild := "2.11.8"
 lazy val root = project
   .in(file("."))
   .settings(
-    name := "free-redis",
+  name := "free-redis",
     moduleName := "free-redis",
     mainClass in (Compile, run) := Some("com.strad.free.redis.run")
-  )
+)
   .aggregate(parser, command, client)
   .dependsOn(parser, command, client)
 
 lazy val parser = project
   .settings(
-  name := "parser",
-  moduleName := "parser")
+  libraryDependencies ++= Seq(
+    "com.lihaoyi" %% "fastparse" % "0.4.1"
+  ),
+    name := "parser",
+    moduleName := "parser")
   .settings(sharedSettings)
 
 lazy val command = project
   .settings(
   name := "command",
-  moduleName := "command")
+    moduleName := "command")
   .settings(sharedSettings)
   .dependsOn(parser)
 
 lazy val client = project
   .settings(
   name := "client",
-  moduleName := "client")
+    moduleName := "client")
   .settings(sharedSettings)
   .dependsOn(parser, command)
-
-
