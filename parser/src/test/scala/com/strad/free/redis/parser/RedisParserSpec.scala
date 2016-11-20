@@ -9,6 +9,22 @@ class RedisParserSpec extends FlatSpec with Matchers {
     val parser = RedisParser.array.parse(str)
     parser shouldBe Parsed.Success(ArrayData(List(BulkString("foo"), BulkString("bar"))), str.length)
   }
+  it should "parse integers fine" in {
+    val str = "*3\r\n:1\r\n:2\r\n:3\r\n"
+    val parser = RedisParser.array.parse(str)
+    parser shouldBe Parsed.Success(ArrayLong(List(LongResp(1), LongResp(2), LongResp(3))), str.length)
+  }
+  it should "parse errors fine" in {
+    val str = "*2\r\n-error\r\n-error2\r\n"
+    val parser = RedisParser.array.parse(str)
+    parser shouldBe Parsed.Success(ArrayError(List(Error("error"), Error("error2"))), str.length)
+  }
+  it should "parse simple strings fine" in {
+    val str = "*2\r\n+Simple\r\n+Simple2\r\n"
+    val parser = RedisParser.array.parse(str)
+    parser shouldBe Parsed.Success(ArraySimpleStr(List(SimpleString("Simple"), SimpleString("Simple2"))), str.length)
+  }
+
   it should "parse when given an emptyArray" in {
     val str = "*0\r\n"
     val parser = RedisParser.array.parse(str)

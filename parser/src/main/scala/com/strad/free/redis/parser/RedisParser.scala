@@ -13,7 +13,12 @@ object BulkEmpty extends BulkResponse
 object BulkNull extends BulkResponse
 
 trait ArrayResponse extends RedisResponse
+// TODO: Model this correctly as it really should be an Array of ArrayResponse
 case class ArrayData(data: List[BulkResponse]) extends ArrayResponse
+case class ArrayLong(data: List[LongResp]) extends ArrayResponse
+case class ArrayError(data: List[Error]) extends ArrayResponse
+case class ArraySimpleStr(data: List[SimpleString]) extends ArrayResponse
+
 object ArrayEmpty extends ArrayResponse
 object ArrayNull extends ArrayResponse
 
@@ -44,7 +49,10 @@ object RedisParser {
   // TODO: Handle simple strings and integers
   def emptyArray = P("*0\r\n").!.map(x => ArrayEmpty)
   def nullArray = P("*-1\r\n").!.map(x => ArrayNull)
-  def arrayHeader = P(arraySentinel ~ numBytes ~ EOL).flatMap(count => bulk.rep(exactly = count).map(x => ArrayData(x.toList)))
+  def arrayHeader = P(arraySentinel ~ numBytes ~ EOL).flatMap(count => bulk.rep(exactly = count).map(x => ArrayData(x.toList)) |
+    integer.rep(exactly = count).map(x => ArrayLong(x.toList)) |
+    error.rep(exactly = count).map(x => ArrayError(x.toList)) |
+    simpleString.rep(exactly = count).map(x => ArraySimpleStr(x.toList)))
   def array = P(emptyArray | nullArray | arrayHeader).map((b: ArrayResponse) => b)
 
   // Top level parse
