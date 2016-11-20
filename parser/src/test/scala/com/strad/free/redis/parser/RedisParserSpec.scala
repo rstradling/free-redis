@@ -4,6 +4,21 @@ import fastparse.all._
 import org.scalatest._
 
 class RedisParserSpec extends FlatSpec with Matchers {
+  "RedisParser when given an array" should "parse correctly" in {
+    val str = "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
+    val parser = RedisParser.array.parse(str)
+    parser shouldBe Parsed.Success(ArrayData(List(BulkString("foo"), BulkString("bar"))), str.length)
+  }
+  it should "parse when given an emptyArray" in {
+    val str = "*0\r\n"
+    val parser = RedisParser.array.parse(str)
+    parser shouldBe Parsed.Success(ArrayEmpty, str.length)
+  }
+  it should "parse when given a nullArray" in {
+    val str = "*-1\r\n"
+    val parser = RedisParser.array.parse(str)
+    parser shouldBe Parsed.Success(ArrayNull, str.length)
+  }
   "RedisParser when given a bulkString" should "parse correctly" in {
     val str = "$3\r\nJOY\r\n"
     val parser = RedisParser.bulk.parse(str)
@@ -64,6 +79,11 @@ class RedisParserSpec extends FlatSpec with Matchers {
     val str = "$3\r\nJOY\r\n"
     val parser = RedisParser.redisResp.parse(str)
     parser shouldBe Parsed.Success(BulkString("JOY"), str.length)
+  }
+  "RedisParser redisResp" should "be able to handle an Array" in {
+    val str = "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
+    val parser = RedisParser.redisResp.parse(str)
+    parser shouldBe Parsed.Success(ArrayData(List(BulkString("foo"), BulkString("bar"))), str.length)
   }
 
 }
