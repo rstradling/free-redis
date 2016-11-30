@@ -5,7 +5,7 @@ sealed trait RedisType {
 }
 case class RedisLong(value: Long) extends RedisType {
   def toRedisStr: String = {
-    s":${value}\r\n"
+    "$" + value.toString.length + "\r\n" + value + "\r\n"
   }
 }
 case class RedisStr(value: String) extends RedisType {
@@ -14,18 +14,27 @@ case class RedisStr(value: String) extends RedisType {
   }
 }
 
-sealed trait Command {
+sealed trait Command extends Product with Serializable {
   def command: String
 }
-sealed trait Hash extends Command
-case class Hset(key: RedisType, field: String, value: RedisType) extends Hash {
+sealed trait Hash extends Product with Serializable
+case class Hset(key: RedisType, field: String, value: RedisType) extends Hash with Command {
   override val command: String = "HSET"
 }
-case class Hget(key: RedisType, field: String) extends Hash {
+case class Hget(key: RedisType, field: String) extends Hash with Command {
   override val command: String = "HGET"
 }
 
-trait BuildCommand[A <: Command] {
+object Hset {
+  def apply(key: String, field: String, value: String): Command = {
+    Hset(RedisStr(key), field, RedisStr(value))
+  }
+  def apply(key: String, field: String, value: Long): Command = {
+    Hset(RedisStr(key), field, RedisLong(value))
+  }
+}
+
+trait BuildCommand[A] {
   def commandStr(cmd: A): String
 }
 
@@ -37,13 +46,22 @@ object RedisCommand {
     "$" + cmd.command.length + "\r\n" + cmd.command + "\r\n"
   }
 
-  def commandStr[A <: Command](a: A)(implicit ev: BuildCommand[A]): String = {
+  def commandStr[A](a: A)(implicit ev: BuildCommand[A]): String = {
     ev.commandStr(a)
+  }
+
+  implicit val cmd = new BuildCommand[Command] {
+    def commandStr(cmd: Command): String = {
+      cmd match {
+        case item @ Hset(k, f, v) => hashSetCommandImpl.commandStr(item)
+        case item @ Hget(k, f) => hashGetCommandImpl.commandStr(item)
+      }
+    }
   }
 
   implicit val hashSetCommandImpl = new BuildCommand[Hset] {
     def commandStr(cmd: Hset): String = {
-      val arrayNum = numArray(3)
+      val arrayNum = numArray(4)
       val c = command(cmd)
       val k = cmd.key.toRedisStr
       val f = RedisStr(cmd.field).toRedisStr
@@ -55,7 +73,7 @@ object RedisCommand {
 
   implicit val hashGetCommandImpl = new BuildCommand[Hget] {
     def commandStr(cmd: Hget): String = {
-      s"${numArray(2)}${command(cmd)}${cmd.key.toRedisStr}${RedisStr(cmd.field).toRedisStr}"
+      s"${numArray(3)}${command(cmd)}${cmd.key.toRedisStr}${RedisStr(cmd.field).toRedisStr}"
     }
   }
 }

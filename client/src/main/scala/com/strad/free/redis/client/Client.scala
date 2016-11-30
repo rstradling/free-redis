@@ -17,31 +17,33 @@ object Connection {
   case class Send(c: Connection, cmd: Command) extends Instruction[RedisResponse]
   case class Respond(c: Connection) extends Instruction[RedisResponse]
   case class Open(server: String, port: Int) extends Instruction[Connection]
+  case class Close(c: Connection) extends Instruction[Unit]
 
   def send(c: Connection, cmd: Command): Free[Instruction, RedisResponse] = Free.liftF(Send(c, cmd))
   def respond(c: Connection): Free[Instruction, RedisResponse] = Free.liftF(Respond(c))
   def open(server: String, port: Int): Free[Instruction, Connection] = Free.liftF(Open(server, port))
+  def close(c: Connection): Free[Instruction, Unit] = Free.liftF(Close(c))
 
 }
 
 trait SocketInterface {
-  def send[B](c: Connection.Connection, cmd: Command)(implicit ev: BuildCommand[B]): RedisResponse
+  def send[A: BuildCommand](c: Connection.Connection, cmd: A): RedisResponse
   def respond(c: Connection.Connection): RedisResponse
   def open(server: String, port: Int): Connection.Connection
+  def close(c: Connection.Connection): Unit
 }
 
 object Impl extends SocketInterface {
-  def send[B <: Command](c: Connection.Connection, cmd: Command)(implicit ev: BuildCommand[B]): RedisResponse = {
-    c.writer.println(RedisCommand.commandStr(cmd)(ev))
-    val response = c.reader.readLine()
+  def send[A: BuildCommand](c: Connection.Connection, cmd: A): RedisResponse = {
+    val sendCmd = implicitly[BuildCommand[A]].commandStr(cmd)
+    c.writer.println(sendCmd)
+    val response = c.reader.readLine() + "\r\n"
     val parsedResult = RedisParser.redisResp.parse(response)
-    println(s"response = $parsedResult")
     parsedResult.get.value
 
   }
   def respond(c: Connection.Connection): RedisResponse = {
-    val resp = c.reader.readLine()
-    println(s"Response = $resp")
+    val resp = c.reader.readLine() + "\r\n"
     val parsedResult = RedisParser.redisResp.parse(resp)
     parsedResult.get.value
   }
@@ -51,28 +53,38 @@ object Impl extends SocketInterface {
     val out = new PrintWriter(outStream, true)
     val inStream = new InputStreamReader(c.getInputStream)
     val in = new BufferedReader(inStream)
-    println(c)
     Connection.Connection(c, out, in)
+  }
+  def close(c: Connection.Connection): Unit = {
+    c.writer.flush
+    c.writer.close
+    c.reader.close()
+    c.s.close
   }
 }
 
 object ConnInterpreter extends (Connection.Instruction ~> Id) {
-  override def apply[A, B <: Command](fa: Connection.Instruction[A])(implicit ev: BuildCommand[B]): Id[A] = fa match {
-    case Connection.Send(c, s) => Impl.send(c, s)(ev)
+  import com.strad.free.redis.command.RedisCommand.cmd
+  override def apply[A](fa: Connection.Instruction[A]): Id[A] = fa match {
+    case Connection.Send(c, s) => Impl.send(c, s)
     case Connection.Respond(c) => Impl.respond(c)
     case Connection.Open(server, port) => Impl.open(server, port)
+    case Connection.Close(c) => Impl.close(c)
   }
 }
 
-object Main {
-  def run(): Unit = {
+object Main extends App {
+  def run(): RedisResponse = {
 
     val hset = Hset(RedisStr("key"), "myfield", RedisLong(32L))
-    val p: Free[Connection.Instruction, Unit] =
+    val p: Free[Connection.Instruction, RedisResponse] =
       for {
         c <- Connection.open("localhost", 6379)
         c2 <- Connection.send(c, hset)
-      } yield ()
+        c3 <- Connection.close(c)
+      } yield c2
     p.foldMap(ConnInterpreter)
   }
+  val res = run()
+  println(res)
 }
