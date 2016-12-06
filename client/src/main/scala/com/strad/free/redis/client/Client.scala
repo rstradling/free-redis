@@ -2,8 +2,10 @@ package com.strad.free.redis.client
 
 import cats.free.Free
 import cats.{ Id, ~> }
+import cats.syntax.either._
+import cats.instances.either._
 import com.strad.free.redis.command.{ BuildCommand, Command, Hset, RedisCommand, RedisLong, RedisStr }
-import com.strad.free.redis.parser.{ RedisParser, RedisResponse }
+import com.strad.free.redis.parser.{ Error, RedisParser, RedisResponse }
 import fastparse.all._
 import java.io._
 import java.net.{ InetAddress, InetSocketAddress, Socket }
@@ -63,18 +65,25 @@ object Impl extends SocketInterface {
   }
 }
 
-object ConnInterpreter extends (Connection.Instruction ~> Id) {
+object ErrorOrObj {
+  sealed trait Error extends Product with Serializable
+  case class ParserError(s: String) extends Error
+  case class ConnectionError(s: String) extends Error
+  type ErrorOr[A] = Either[Error, A]
+}
+
+object ConnInterpreter extends (Connection.Instruction ~> ErrorOrObj.ErrorOr) {
   import com.strad.free.redis.command.RedisCommand.cmd
-  override def apply[A](fa: Connection.Instruction[A]): Id[A] = fa match {
-    case Connection.Send(c, s) => Impl.send(c, s)
-    case Connection.Respond(c) => Impl.respond(c)
-    case Connection.Open(server, port) => Impl.open(server, port)
-    case Connection.Close(c) => Impl.close(c)
+  override def apply[A](fa: Connection.Instruction[A]): ErrorOrObj.ErrorOr[A] = fa match {
+    case Connection.Send(c, s) => Either.catchNonFatal(Impl.send(c, s)).leftMap(x => ErrorOrObj.ConnectionError(x.toString))
+    case Connection.Respond(c) => Either.catchNonFatal(Impl.respond(c)).leftMap(x => ErrorOrObj.ParserError(x.toString))
+    case Connection.Open(server, port) => Either.catchNonFatal(Impl.open(server, port)).leftMap(x => ErrorOrObj.ParserError(x.toString))
+    case Connection.Close(c) => Either.catchNonFatal(Impl.close(c)).leftMap(x => ErrorOrObj.ParserError(x.toString))
   }
 }
 
 object Main extends App {
-  def run(): RedisResponse = {
+  def run(): ErrorOrObj.ErrorOr[RedisResponse] = {
 
     val hset = Hset(RedisStr("key"), "myfield", RedisLong(32L))
     val p: Free[Connection.Instruction, RedisResponse] =
