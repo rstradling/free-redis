@@ -77,9 +77,9 @@ class RedisParserSpec extends FlatSpec with Matchers {
     parser shouldBe Parsed.Success(Error(""), str.length)
   }
   "RedisParser redisResp" should "be able to determine error" in {
-    val str = "-Error message\r\n"
+    val str = "-ERR Protocol error: expected '$', got ':'\r\n"
     val parser = RedisParser.redisResp.parse(str)
-    parser shouldBe Parsed.Success(Error("Error message"), str.length)
+    parser shouldBe Parsed.Success(Error("ERR Protocol error: expected '$', got ':'"), str.length)
   }
   "RedisParser redisResp" should "be able to determine simple string" in {
     val str = "+OK\r\n"
