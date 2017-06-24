@@ -14,7 +14,7 @@ val sharedSettings = Seq(
 
 logBuffered in Test := false
 
-crossScalaVersions in ThisBuild := Seq("2.11.8", "2.12.0")
+crossScalaVersions in ThisBuild := Seq("2.11.8", "2.12.2")
 
 scalaVersion in ThisBuild := "2.11.8"
 
