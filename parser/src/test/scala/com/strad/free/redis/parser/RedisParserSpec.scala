@@ -1,3 +1,19 @@
+/*
+ * Copyright 2017 47 Degrees, LLC. <http://www.47deg.com>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.strad.free.redis.parser
 
 import fastparse.all._
@@ -7,22 +23,34 @@ class RedisParserSpec extends FlatSpec with Matchers {
   "RedisParser when given an array" should "parse correctly" in {
     val str = "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
     val parser = RedisParser.array.parse(str)
-    parser shouldBe Parsed.Success(ArrayData(List(BulkString("foo"), BulkString("bar"))), str.length)
+    parser shouldBe Parsed.Success(
+      ArrayData(List(BulkString("foo"), BulkString("bar"))),
+      str.length
+    )
   }
   it should "parse integers fine" in {
     val str = "*3\r\n:1\r\n:2\r\n:3\r\n"
     val parser = RedisParser.array.parse(str)
-    parser shouldBe Parsed.Success(ArrayLong(List(LongResp(1), LongResp(2), LongResp(3))), str.length)
+    parser shouldBe Parsed.Success(
+      ArrayLong(List(LongResp(1), LongResp(2), LongResp(3))),
+      str.length
+    )
   }
   it should "parse errors fine" in {
     val str = "*2\r\n-error\r\n-error2\r\n"
     val parser = RedisParser.array.parse(str)
-    parser shouldBe Parsed.Success(ArrayError(List(Error("error"), Error("error2"))), str.length)
+    parser shouldBe Parsed.Success(
+      ArrayError(List(Error("error"), Error("error2"))),
+      str.length
+    )
   }
   it should "parse simple strings fine" in {
     val str = "*2\r\n+Simple\r\n+Simple2\r\n"
     val parser = RedisParser.array.parse(str)
-    parser shouldBe Parsed.Success(ArraySimpleStr(List(SimpleString("Simple"), SimpleString("Simple2"))), str.length)
+    parser shouldBe Parsed.Success(
+      ArraySimpleStr(List(SimpleString("Simple"), SimpleString("Simple2"))),
+      str.length
+    )
   }
 
   it should "parse when given an emptyArray" in {
@@ -79,7 +107,10 @@ class RedisParserSpec extends FlatSpec with Matchers {
   "RedisParser redisResp" should "be able to determine error" in {
     val str = "-ERR Protocol error: expected '$', got ':'\r\n"
     val parser = RedisParser.redisResp.parse(str)
-    parser shouldBe Parsed.Success(Error("ERR Protocol error: expected '$', got ':'"), str.length)
+    parser shouldBe Parsed.Success(
+      Error("ERR Protocol error: expected '$', got ':'"),
+      str.length
+    )
   }
   "RedisParser redisResp" should "be able to determine simple string" in {
     val str = "+OK\r\n"
@@ -99,7 +130,10 @@ class RedisParserSpec extends FlatSpec with Matchers {
   "RedisParser redisResp" should "be able to handle an Array" in {
     val str = "*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n"
     val parser = RedisParser.redisResp.parse(str)
-    parser shouldBe Parsed.Success(ArrayData(List(BulkString("foo"), BulkString("bar"))), str.length)
+    parser shouldBe Parsed.Success(
+      ArrayData(List(BulkString("foo"), BulkString("bar"))),
+      str.length
+    )
   }
 
 }
