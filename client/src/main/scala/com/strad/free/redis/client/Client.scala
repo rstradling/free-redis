@@ -1,68 +1,45 @@
-package com.strad.free.redis.client
+/*
+ * Copyright 2017 47 Degrees, LLC. <http://www.47deg.com>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-import cats.free.Free
-import cats.{ Id, ~> }
-import cats.syntax.either._
-import cats.instances.either._
-import com.strad.free.redis.command.{ BuildCommand, Command, Hset, RedisCommand, RedisLong, RedisStr }
+package com.strad.free.redis.client
+import com.strad.free.redis.command.{
+  BuildCommand,
+  Command,
+  Hset,
+  RedisCommand,
+  RedisLong,
+  RedisStr
+}
 import com.strad.free.redis.parser.{ Error, RedisParser, RedisResponse }
 import fastparse.all._
+import freestyle._
+import freestyle.implicits._
 import java.io._
 import java.net.{ InetAddress, InetSocketAddress, Socket }
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
 
-object Connection {
-  case class Connection(s: Socket, writer: PrintWriter, reader: BufferedReader)
+case class Connection(s: Socket, writer: PrintWriter, reader: BufferedReader)
 
-  sealed trait Instruction[A]
-  case class Send(c: Connection, cmd: Command) extends Instruction[RedisResponse]
-  case class Respond(c: Connection) extends Instruction[RedisResponse]
-  case class Open(server: String, port: Int) extends Instruction[Connection]
-  case class Close(c: Connection) extends Instruction[Unit]
-
-  def send(c: Connection, cmd: Command): Free[Instruction, RedisResponse] = Free.liftF(Send(c, cmd))
-  def respond(c: Connection): Free[Instruction, RedisResponse] = Free.liftF(Respond(c))
-  def open(server: String, port: Int): Free[Instruction, Connection] = Free.liftF(Open(server, port))
-  def close(c: Connection): Free[Instruction, Unit] = Free.liftF(Close(c))
-
-}
-
-trait SocketInterface {
-  def send[A: BuildCommand](c: Connection.Connection, cmd: A): RedisResponse
-  def respond(c: Connection.Connection): RedisResponse
-  def open(server: String, port: Int): Connection.Connection
-  def close(c: Connection.Connection): Unit
-}
-
-object Impl extends SocketInterface {
-  def send[A: BuildCommand](c: Connection.Connection, cmd: A): RedisResponse = {
-    val sendCmd = implicitly[BuildCommand[A]].commandStr(cmd)
-    c.writer.println(sendCmd)
-    val response = c.reader.readLine() + "\r\n"
-    val parsedResult = RedisParser.redisResp.parse(response)
-    parsedResult.get.value
-
-  }
-  def respond(c: Connection.Connection): RedisResponse = {
-    val resp = c.reader.readLine() + "\r\n"
-    val parsedResult = RedisParser.redisResp.parse(resp)
-    parsedResult.get.value
-  }
-  def open(server: String, port: Int): Connection.Connection = {
-    val c = new Socket(server, port)
-    val outStream = c.getOutputStream
-    val out = new PrintWriter(outStream, true)
-    val inStream = new InputStreamReader(c.getInputStream)
-    val in = new BufferedReader(inStream)
-    Connection.Connection(c, out, in)
-  }
-  def close(c: Connection.Connection): Unit = {
-    c.writer.flush
-    c.writer.close
-    c.reader.close()
-    c.s.close
-  }
+@free
+trait Instruction {
+  def send(c: Connection, cmd: Command): FS[RedisResponse]
+  def respond(c: Connection): FS[RedisResponse]
+  def open(server: String, port: Int): FS[Connection]
+  def close(c: Connection): FS[Unit]
 }
 
 object ErrorOrObj {
@@ -72,28 +49,71 @@ object ErrorOrObj {
   type ErrorOr[A] = Either[Error, A]
 }
 
-object ConnInterpreter extends (Connection.Instruction ~> ErrorOrObj.ErrorOr) {
-  import com.strad.free.redis.command.RedisCommand.cmd
-  override def apply[A](fa: Connection.Instruction[A]): ErrorOrObj.ErrorOr[A] = fa match {
-    case Connection.Send(c, s) => Either.catchNonFatal(Impl.send(c, s)).leftMap(x => ErrorOrObj.ConnectionError(x.toString))
-    case Connection.Respond(c) => Either.catchNonFatal(Impl.respond(c)).leftMap(x => ErrorOrObj.ParserError(x.toString))
-    case Connection.Open(server, port) => Either.catchNonFatal(Impl.open(server, port)).leftMap(x => ErrorOrObj.ParserError(x.toString))
-    case Connection.Close(c) => Either.catchNonFatal(Impl.close(c)).leftMap(x => ErrorOrObj.ParserError(x.toString))
-  }
+@module
+trait RedisApp {
+  val redis: Instruction
 }
 
 object Main extends App {
-  def run(): ErrorOrObj.ErrorOr[RedisResponse] = {
+  import scala.concurrent.Future
+  import scala.concurrent.ExecutionContext.Implicits.global
+  import com.strad.free.redis.command.RedisCommand._
+  implicit val redisInstructionHander =
+    new Instruction.Handler[Future] {
+      def send(c: Connection, cmd: Command): Future[RedisResponse] = {
+        Future {
+          // FIXME: The hardcoding is wrong
+          val sendCmd = "HSET key myfield 32\r\n" //ev.commandStr(cmd)
+          c.writer.println(sendCmd)
+          val response = c.reader.readLine() + "\r\n"
+          val parsedResult = RedisParser.redisResp.parse(response)
+          parsedResult.get.value
+        }
 
-    val hset = Hset(RedisStr("key"), "myfield", RedisLong(32L))
-    val p: Free[Connection.Instruction, RedisResponse] =
-      for {
-        c <- Connection.open("localhost", 6379)
-        c2 <- Connection.send(c, hset)
-        c3 <- Connection.close(c)
-      } yield c2
-    p.foldMap(ConnInterpreter)
+      }
+      def respond(c: Connection): Future[RedisResponse] = {
+        Future {
+          val resp = c.reader.readLine() + "\r\n"
+          val parsedResult = RedisParser.redisResp.parse(resp)
+          parsedResult.get.value
+        }
+      }
+      def open(server: String, port: Int): Future[Connection] = {
+        Future {
+          val c = new Socket(server, port)
+          val outStream = c.getOutputStream
+          val out = new PrintWriter(outStream, true)
+          val inStream = new InputStreamReader(c.getInputStream)
+          val in = new BufferedReader(inStream)
+          Connection(c, out, in)
+        }
+      }
+      def close(c: Connection): Future[Unit] = {
+        Future {
+          c.writer.flush
+          c.writer.close
+          c.reader.close()
+          c.s.close
+        }
+      }
+    }
+
+  val hset = Hset(RedisStr("key"), "myfield", RedisLong(32L))
+  def program[F[_]](implicit A: RedisApp[F]) = {
+    import A._
+    import cats.implicits._
+    import com.strad.free.redis.command.RedisCommand._
+    for {
+      c <- redis.open("localhost", 6379)
+      c2 <- redis.send(c, hset)
+      c3 <- redis.close(c)
+    } yield c2
   }
-  val res = run()
+  import cats.implicits._
+  import scala.concurrent.duration.Duration
+  import scala.concurrent.Await
+
+  val futureValue = program[RedisApp.Op].interpret[Future]
+  val res = Await.result(futureValue, Duration.Inf)
   println(res)
 }
