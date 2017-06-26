@@ -15,14 +15,7 @@
  */
 
 package com.strad.free.redis.client
-import com.strad.free.redis.command.{
-  BuildCommand,
-  Command,
-  Hset,
-  RedisCommand,
-  RedisLong,
-  RedisStr
-}
+import com.strad.free.redis.command.{ Command, Hset, RedisLong, RedisStr }
 import com.strad.free.redis.parser.{ Error, RedisParser, RedisResponse }
 import fastparse.all._
 import freestyle._
@@ -57,13 +50,11 @@ trait RedisApp {
 object Main extends App {
   import scala.concurrent.Future
   import scala.concurrent.ExecutionContext.Implicits.global
-  import com.strad.free.redis.command.RedisCommand._
   implicit val redisInstructionHander =
     new Instruction.Handler[Future] {
       def send(c: Connection, cmd: Command): Future[RedisResponse] = {
         Future {
-          // FIXME: The hardcoding is wrong
-          val sendCmd = "HSET key myfield 32\r\n" //ev.commandStr(cmd)
+          val sendCmd = cmd.commandStr
           c.writer.println(sendCmd)
           val response = c.reader.readLine() + "\r\n"
           val parsedResult = RedisParser.redisResp.parse(response)
@@ -102,7 +93,6 @@ object Main extends App {
   def program[F[_]](implicit A: RedisApp[F]) = {
     import A._
     import cats.implicits._
-    import com.strad.free.redis.command.RedisCommand._
     for {
       c <- redis.open("localhost", 6379)
       c2 <- redis.send(c, hset)
